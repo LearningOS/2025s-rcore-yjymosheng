@@ -1,3 +1,64 @@
+# lab 1
+
+## 我实现的功能
+
+我进行了如下操作:
+
+1. 对 TaskManager 拓展了2个method, 对TCB添加了一个字段用来记录各syscall的调用次数
+
+2. 在[task](../os/src/task/task.rs)中封装了它们并对外暴露相关接口
+
+3. 在[syscall](../os/src/syscall/mod.rs)中添加更新系统调用次数的函数
+
+4. 在[syscall](../os/src/syscall/process.rs)实现中添加sys_trace的实现
+
+## 简答作业
+
+1. 正确进入 U 态后，程序的特征还应有：使用 S 态特权指令，访问 S 态寄存器后会报错。 请同学们可以自行测试这些内容（运行 三个 bad 测例 (ch2b_bad_*.rs) ）， 描述程序出错行为，同时注意注明你使用的 sbi 及其版本。
+    1. ch2_bad_address 
+
+        采用裸指针写0x0，访问错误地址，程序被杀死退出，退出码为-4
+
+    2. ch2_bad_instructions
+
+        用户态执行sret，特权级不匹配，程序被杀死退出，退出码为-3
+
+    3. ch2_bad_register
+
+        用户态访问sstatus特权寄存器，特权级不匹配，程序被杀死退出，退出码为-3
+2. 深入理解 trap.S 中两个函数 __alltraps 和 __restore 的作用，并回答如下问题:
+    1. L40：刚进入 __restore 时，sp 代表了什么值。请指出 __restore 的两种使用情景。
+        1. 在进入 __restore 时，a0 被传递给 trap_handler，__restore 的a0应该是内核栈的指针值，指向TrapContext的栈帧
+
+        2. __restore使用场景
+            1. 从中断返回用户态
+
+            2. 从系统调用或其他内核功能返回
+    2. sstatus 、 sepc 、sscratch 三个寄存器
+        1.  sstatus 寄存器保存了当前处理器的状态
+
+        2. sepc 寄存器保存了上一次执行的指令地址，这样可以在恢复时正确地跳回用户程序的执行
+
+        3. sscratch 是一个用于保存一些临时值的寄存器
+    3. L50-L56：为何跳过了 x2 和 x4？
+        1. 因为x2是sp寄存器、x4是线程相关的寄存器，当前没有实现
+    4. L60：该指令之后，sp 和 sscratch 中的值分别有什么意义？
+        1. sp 被换回了用户态栈， sscratch 指向内核栈
+    5. __restore：中发生状态切换在哪一条指令？为何该指令执行之后会进入用户态？
+        1. 状态切换是L60
+ 
+            csrrw sp, sscratch, sp
+
+            因为sp已经变为了用户态的栈，接下来会进行用户程序的执行
+    6. L13：该指令之后，sp 和 sscratch 中的值分别有什么意义？
+        1. sp 被换回了内核栈， sscratch 指向用户栈
+    7. 从 U 态进入 S 态是哪一条指令发生的？
+        状态切换是L13
+ 
+        csrrw sp, sscratch, sp
+
+        因为sp已经变为了内核态的栈，接下来会进行内核程序的执行
+
 
 
 ## 荣誉准则
