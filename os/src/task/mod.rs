@@ -136,6 +136,18 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+    /// 获取次数
+    pub fn update_taks_runtime_id(&self, id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current_id = inner.current_task;
+        inner.tasks[current_id].task_run_times[id] += 1;
+    }
+    /// 获取次数
+    pub fn get_current_task_id_times(&self, id: usize) -> usize {
+        let inner = self.inner.exclusive_access();
+        let current_id = inner.current_task;
+        inner.tasks[current_id].task_run_times[id]
+    }
 }
 
 /// Run the first task in task list.
@@ -171,17 +183,12 @@ pub fn exit_current_and_run_next() {
     run_next_task();
 }
 
-/// 获取次数
-pub fn get_current_task_id_times(id:usize )->usize{
-    let inner =TASK_MANAGER.inner.exclusive_access();
-    let current_task = inner.current_task;
-    let tasks = inner.tasks;
-    tasks[current_task].task_run_times[id]
-}
 /// 更新次数
-pub fn update_taks_runtime_id(id:usize) {
-    let mut inner =TASK_MANAGER.inner.exclusive_access();
-    let current_task = inner.current_task;
-    let  tasks =&mut inner.tasks;
-    tasks[current_task].task_run_times[id]+=1;
+pub fn update_taks_runtime_id(id: usize) {
+    TASK_MANAGER.update_taks_runtime_id(id);
+}
+
+/// 获取次数
+pub fn get_current_task_id_times(id: usize) -> usize {
+    TASK_MANAGER.get_current_task_id_times(id)
 }
