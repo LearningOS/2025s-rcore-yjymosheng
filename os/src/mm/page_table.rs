@@ -4,6 +4,7 @@ use super::{frame_alloc, FrameTracker, PhysAddr, PhysPageNum, StepByOne, VirtAdd
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::*;
+use riscv::register::sie;
 
 bitflags! {
     /// page table entry flags
@@ -196,4 +197,24 @@ pub fn translate_va<T> (token: usize , ptr: *const T) -> &'static mut T {
 
     page_table.translated_va(VirtAddr::from(va)).unwrap().get_mut()
 
+}
+
+/// add a access
+pub fn access(token: usize , ptr: usize , write :bool) -> bool{
+
+    if let Some(pte) = PageTable::from_token(token).find_pte(ptr.into()) {
+        let flags = pte.flags();
+        if !flags.contains(PTEFlags::V | PTEFlags::U) {
+            return false;
+        }
+        if write && !flags.contains(PTEFlags::W) {
+            return false;
+        }
+        if !write && !flags.contains(PTEFlags::R) {
+            return false;
+        }
+        true
+    }else {
+        false
+    }
 }

@@ -1,5 +1,12 @@
 //! Process management syscalls
-use crate::{mm::{translate_va, translated_byte_buffer}, task::{change_program_brk, current_user_token, exit_current_and_run_next, suspend_current_and_run_next}, timer::get_time_ms};
+use crate::{
+    mm::{access, translate_va, translated_byte_buffer},
+    task::{
+        change_program_brk, current_user_token, exit_current_and_run_next,
+        suspend_current_and_run_next,
+    },
+    timer::get_time_ms,
+};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -33,14 +40,32 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
         usec: us % 1_000_000,
     };
     0
-
 }
 
 /// TODO: Finish sys_trace to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
     trace!("kernel: sys_trace");
-    -1
+    let token = current_user_token();
+    match _trace_request {
+        0 => {
+            if access(token, _id, false) {
+                *translate_va(token, _id as *const u8) as isize
+            } else {
+                -1
+            }
+        }
+        1 => {
+            if access(token, _id, false) {
+                *translate_va(token, _id as *const u8) = _data as u8;
+                0
+            } else {
+                -1
+            }
+        }
+        2 => ,
+        _ => -1,
+    }
 }
 
 // YOUR JOB: Implement mmap.
