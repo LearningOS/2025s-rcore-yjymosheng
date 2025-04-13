@@ -4,7 +4,6 @@ use super::{frame_alloc, FrameTracker, PhysAddr, PhysPageNum, StepByOne, VirtAdd
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::*;
-use riscv::register::sie;
 
 bitflags! {
     /// page table entry flags
@@ -28,7 +27,7 @@ bitflags! {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone,Debug)]
 #[repr(C)]
 /// page table entry structure
 pub struct PageTableEntry {
@@ -74,6 +73,7 @@ impl PageTableEntry {
 }
 
 /// page table structure
+#[derive(Debug)]
 pub struct PageTable {
     root_ppn: PhysPageNum,
     frames: Vec<FrameTracker>,
@@ -201,8 +201,18 @@ pub fn translate_va<T> (token: usize , ptr: *const T) -> &'static mut T {
 
 /// add a access
 pub fn access(token: usize , ptr: usize , write :bool) -> bool{
+    info!("access: ptr = {:#x}, write = {}", ptr, write);
+    let binding = PageTable::from_token(token);
+    
+    let va  = VirtAddr::from(ptr);
+    let vpn = va.floor();
+    
+    let a=  binding.find_pte(vpn);
 
-    if let Some(pte) = PageTable::from_token(token).find_pte(ptr.into()) {
+    // info!("\t{:?}\t\t{:?}",binding, a);
+
+    if let Some(pte) = a {
+        // info!("IN access");
         let flags = pte.flags();
         if !flags.contains(PTEFlags::V | PTEFlags::U) {
             return false;

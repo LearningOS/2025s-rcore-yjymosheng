@@ -154,12 +154,40 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
-    
+    /// update
     fn update_times(&self , syscall_id: usize) {
         let mut inner  = self.inner.exclusive_access();
         let current = inner.current_task; 
         inner.tasks[current].task_syscall_times[syscall_id %MAX_SYSCALL_NUM]+=1;
     }
+
+    /// update 
+    fn get_current_id_times(&self, syscall_id: usize)->isize{
+        let inner  = self.inner.exclusive_access();
+        let current = inner.current_task; 
+        inner.tasks[current].task_syscall_times[syscall_id %MAX_SYSCALL_NUM] as isize
+    }
+
+    /// map 
+    fn task_map(&self , start:usize,len:usize,port:usize) -> isize{
+        let mut  inner = self.inner.exclusive_access();
+    
+        let current = inner.current_task;
+        let  mem_map = &mut inner.tasks[current].memory_set;
+
+        mem_map.mmap(start,len,port)
+     }
+
+       /// unmap 
+       fn task_unmap(&self , start:usize,len:usize) -> isize{
+        let mut inner = self.inner.exclusive_access();
+    
+        let current = inner.current_task;
+        let mem_map =&mut inner.tasks[current].memory_set;
+
+        mem_map.munmap(start,len)
+     }
+
 }
 
 /// Run the first task in task list.
@@ -209,7 +237,20 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
 }
-
+/// update
 pub fn update_times(syscall_id: usize){
     TASK_MANAGER.update_times(syscall_id);
+}
+/// update
+pub fn get_current_id_times(syscall_id: usize) -> isize{
+    TASK_MANAGER.get_current_id_times(syscall_id)
+}
+
+/// map
+pub fn task_map(start:usize,len:usize,port:usize) -> isize{
+    TASK_MANAGER.task_map(start,len,port)
+}
+/// unmap
+pub fn task_unmap(start:usize,len:usize) -> isize{
+    TASK_MANAGER.task_unmap(start,len)
 }
