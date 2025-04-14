@@ -7,14 +7,13 @@ use super::{add_task, SignalFlags};
 use super::{pid_alloc, PidHandle};
 use crate::fs::{File, Stdin, Stdout};
 use crate::mm::{translated_refmut, MemorySet, KERNEL_SPACE};
-use crate::sync::{Banker, Condvar, Mutex, Semaphore, UPSafeCell};
+use crate::sync::{Condvar, Mutex, Semaphore, UPSafeCell};
 use crate::trap::{trap_handler, TrapContext};
 use alloc::string::String;
 use alloc::sync::{Arc, Weak};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefMut;
-use core::fmt::{self, Display, Formatter};
 
 /// Process Control Block
 pub struct ProcessControlBlock {
@@ -22,23 +21,6 @@ pub struct ProcessControlBlock {
     pub pid: PidHandle,
     /// mutable
     inner: UPSafeCell<ProcessControlBlockInner>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum Resource {
-    Mutex(usize),
-    Semaphore(usize),
-    Condvar(usize),
-}
-
-impl Display for Resource {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Resource::Mutex(id) => write!(f, "Mutex({})", id),
-            Resource::Semaphore(id) => write!(f, "Semaphore({})", id),
-            Resource::Condvar(id) => write!(f, "Condvar({})", id),
-        }
-    }
 }
 
 /// Inner of Process Control Block
@@ -67,8 +49,8 @@ pub struct ProcessControlBlockInner {
     pub semaphore_list: Vec<Option<Arc<Semaphore>>>,
     /// condvar list
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
-    /// deadlock detection
-    pub banker: Option<Banker<Resource>>,
+    /// is deadlock detection enable
+    pub dead_lock_detect: bool,
 }
 
 impl ProcessControlBlockInner {
@@ -102,85 +84,78 @@ impl ProcessControlBlockInner {
     pub fn get_task(&self, tid: usize) -> Arc<TaskControlBlock> {
         self.tasks[tid].as_ref().unwrap().clone()
     }
+    /// deadlock detectiong algorithm
+    pub fn deadlock_detect(&self) -> bool {
+        let len = self.mutex_list.len()  + self.semaphore_list.len();
 
-    pub fn new_thread(&mut self, thread_id: usize) {
-        let Some(banker) = self.banker.as_mut() else {
-            return
+        let mut allocation: Vec<Vec<u32>> = vec![vec![0; len]; self.tasks.len()];
+        let mut need: Vec<Vec<u32>> = vec![vec![0; len]; self.tasks.len()];
+
+        let fetch_id = |flag, id| -> usize {
+            match flag {
+                true => id + self.mutex_list.len(),
+                false => id,
+            }
         };
+        for (tid, tcb) in self.tasks.iter().enumerate() {
+            if let Some(task) = tcb {
+                let inner = task.inner_exclusive_access();
+                for allc in &inner.allocation {
+                    allocation[tid][fetch_id(allc.0, allc.1)] += 1;
+                }
+                if let Some(n) = &inner.resource {
+                    need[tid][fetch_id(n.0, n.1)] += 1;
+                }
+            }
+        }
 
-        banker.update_task(thread_id);
-    }
+        // step 1: set `work` vector & `finish` vector
+        // represent the resources os provided
+        let mut work: Vec<u32> = vec![0; len];
+        // initialize `work` vector as `available` vector
+        for (i, option) in self.mutex_list.iter().enumerate() {
+            if let Some(mutex) = option {
+                if !mutex.is_locked() {
+                    work[i] += 1;
+                }
+            }
+        }
+        for (i, option) in self.semaphore_list.iter().enumerate() {
+            if let Some(semaphore) = option {
+                let count = semaphore.inner.exclusive_access().count;
+                if count > 0 {
+                    work[i + self.mutex_list.len()] += count as u32;
+                }
+            }
+        }
 
-    pub fn new_mutex(&mut self, mutex_id: usize) {
-        let Some(banker) = self.banker.as_mut() else {
-            return
-        };
-
-        banker.add_resource(Resource::Mutex(mutex_id), 1);
-    }
-
-    pub fn new_semaphore(&mut self, semaphore_id: usize, total: usize) {
-        let Some(banker) = self.banker.as_mut() else {
-            return
-        };
-
-        banker.add_resource(Resource::Semaphore(semaphore_id), total);
-    }
-
-    pub fn new_condvar(&mut self, condvar_id: usize) {
-        let Some(banker) = self.banker.as_mut() else {
-            return
-        };
-
-        banker.add_resource(Resource::Condvar(condvar_id), 1);
-    }
-
-    pub fn try_lock_mutex(&mut self, thread_id: usize, mutex_id: usize) -> bool {
-        let Some(banker) = self.banker.as_mut() else {
-            return true
-        };
-
-        banker.try_request(thread_id, Resource::Mutex(mutex_id), 1)
-    }
-
-    pub fn lock_mutex(&mut self, thread_id: usize, mutex_id: usize) {
-        let Some(banker) = self.banker.as_mut() else {
-            return
-        };
-
-        banker.request(thread_id, Resource::Mutex(mutex_id), 1)
-    }
-
-    pub fn unlock_mutex(&mut self, thread_id: usize, mutex_id: usize) {
-        let Some(banker) = self.banker.as_mut() else {
-            return
-        };
-
-        banker.release_holding(thread_id, Resource::Mutex(mutex_id), 1);
-    }
-
-    pub fn try_request_semaphore(&mut self, thread_id: usize, semaphore_id: usize, amount: usize) -> bool {
-        let Some(banker) = self.banker.as_mut() else {
-            return true
-        };
-
-        banker.try_request(thread_id, Resource::Semaphore(semaphore_id), amount)
-    }
-
-    pub fn request_semaphore(&mut self, thread_id: usize, semaphore_id: usize, amount: usize) {
-        let Some(banker) = self.banker.as_mut() else {
-            return
-        };
-
-        banker.request(thread_id, Resource::Semaphore(semaphore_id), amount)
-    }
-
-    pub fn release_semaphore(&mut self, semaphore_id: usize, amount: usize) {
-        let Some(banker) = self.banker.as_mut() else {
-            return
-        };
-
-        banker.release_new(Resource::Semaphore(semaphore_id), amount)
+        // initialize `finish` vector
+        let mut finish = vec![false; self.tasks.len()];
+        loop {
+            // step 2
+            let task = finish.iter().enumerate().find(|(tid, finished)| {
+                if **finished {
+                    false
+                } else { // Finish[i] == false;
+                    for j in 0..len {
+                        if need[*tid][j] > work[j] {
+                            return false;
+                        }
+                    }
+                    true // Need[i,j] ≤ Work[j];
+                }
+            });
+            // step 3
+            if let Some((tid, _)) = task {
+                for j in 0..len {
+                    work[j] += allocation[tid][j]; // Work[j] = Work[j] + Allocation[i, j];
+                }
+                finish[tid] = true; // Finish[i] = true;
+            } else {
+                break; // goto step 4
+            }
+        }
+        finish.contains(&false) // step 4: if Finish[0..n-1] = true -> safe, otherwise -> deadlock
     }
 }
 
@@ -219,7 +194,7 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
-                    banker: None,
+                    dead_lock_detect: false,
                 })
             },
         });
@@ -346,7 +321,7 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
-                    banker: None
+                    dead_lock_detect: false,
                 })
             },
         });
@@ -383,20 +358,5 @@ impl ProcessControlBlock {
     /// get pid
     pub fn getpid(&self) -> usize {
         self.pid.0
-    }
-
-    pub fn turn_deadlock_detect(&self, enable: bool) -> bool {
-        let mut inner = self.inner_exclusive_access();
-        if enable {
-            if inner.banker.is_none() {
-                inner.banker = Some(Banker::new());
-                true
-            } else {
-                false
-            }
-        } else {
-            inner.banker = None;
-            true
-        }
     }
 }
