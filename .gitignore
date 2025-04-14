@@ -19,3 +19,7 @@ pushall.sh
 ci-user/
 os/vendor/
 user/
+
+bootloader/
+
+os/src/sbi.rs
